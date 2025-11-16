@@ -42,7 +42,7 @@ type Package struct {
 }
 
 func (c *Client) GetResource(ctx context.Context, resourceID string) (*Resource, error) {
-	url := fmt.Sprintf("%sresource_show?id=%s", c.baseURL, resourceID)
+	url := fmt.Sprintf("%s/resource_show?id=%s", c.baseURL, resourceID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

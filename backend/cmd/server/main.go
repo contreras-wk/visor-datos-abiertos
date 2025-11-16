@@ -25,8 +25,8 @@ func main() {
 
 	config := &server.Config{
 		Port:          getEnv("PORT", "8080"),
-		CKANBaseURL:   getEnv("CKAN_URL", "https://datos.gob.mx/busca/api/3/action"),
-		RedisURL:      getEnv("REDIS_URL", "http://localhost:6379/0"),
+		CKANBaseURL:   getEnv("CKAN_URL", "https://datos.gob.mx/api/3/action"),
+		RedisURL:      getEnv("REDIS_URL", "redis://localhost:6379/0"),
 		CacheDir:      getEnv("CACHE_DIR", "/tmp/datasets"),
 		MemoryCacheGB: 4,
 		DiskCacheGB:   50,
