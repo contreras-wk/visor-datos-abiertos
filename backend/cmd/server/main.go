@@ -71,8 +71,8 @@ func main() {
 	httpServer := &http.Server{
 		Addr:           ":" + config.Port,
 		Handler:        srv.Router(),
-		ReadTimeout:    30 * time.Second,
-		WriteTimeout:   30 * time.Second,
+		ReadTimeout:    5 * time.Minute,
+		WriteTimeout:   5 * time.Minute,
 		IdleTimeout:    120 * time.Second,
 		MaxHeaderBytes: 1 << 20, // 1MB
 	}
