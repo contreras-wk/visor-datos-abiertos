@@ -24,7 +24,7 @@ func (m *Manager) downloadAndConvertWithProgress(ctx context.Context, uuid strin
 	log.Printf("📦 Recurso: %s (%s)", resource.Name, resource.Format)
 	log.Printf("📍 URL: %s", resource.URL)
 
-	// 2. Crear archivo temporal
+	// 2. Crear archivo temporal para CSV
 	tmpCSV := filepath.Join(os.TempDir(), fmt.Sprintf("%s_%d.csv", uuid, time.Now().Unix()))
 	defer os.Remove(tmpCSV)
 
@@ -35,14 +35,23 @@ func (m *Manager) downloadAndConvertWithProgress(ctx context.Context, uuid strin
 
 	log.Printf("✓ CSV descargado: %s", tmpCSV)
 
-	// 4. Crear DuckDB
-	dbPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s.duckdb", uuid))
+	// 4. Crear DuckDB DIRECTAMENTE en el directorio de cache
+	cacheDir := m.cacheManager.GetCacheDir()
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return "", fmt.Errorf("error creando directorio cache: %w", err)
+	}
+
+	dbPath := filepath.Join(cacheDir, fmt.Sprintf("%s.duckdb", uuid))
+
+	log.Printf("📂 Creando DuckDB en cache: %s", dbPath)
+
 	conn, err := sql.Open("duckdb", dbPath)
 	if err != nil {
 		return "", fmt.Errorf("error creando DuckDB: %w", err)
 	}
 	defer conn.Close()
 
+	// 5. Cargar CSV en DuckDB
 	log.Printf("🔄 Convirtiendo CSV a DuckDB...")
 
 	query := fmt.Sprintf(`
@@ -60,25 +69,26 @@ func (m *Manager) downloadAndConvertWithProgress(ctx context.Context, uuid strin
 		return "", fmt.Errorf("error cargando CSV en DuckDB: %w", err)
 	}
 
-	// 5. Stats
+	// 6. Obtener estadísticas
 	var rowCount int64
 	err = conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM data").Scan(&rowCount)
 	if err == nil {
 		log.Printf("✓ Cargados %d registros", rowCount)
 	}
 
-	// 6. Crear índices
+	// 7. Crear índices
+	log.Printf("📊 Creando índices inteligentes...")
 	if err := m.createIndexes(ctx, conn, resource); err != nil {
 		log.Printf("Warning: error creando índices: %v", err)
 	}
 
-	// 7. Optimizar
+	// 8. Optimizar base de datos
 	if _, err := conn.ExecContext(ctx, "CHECKPOINT"); err != nil {
 		log.Printf("Warning: error en checkpoint: %v", err)
 	}
 
 	log.Printf("✓ DuckDB creado exitosamente: %s", dbPath)
-	return dbPath, nil
+	return dbPath, nil // Retorna el path de la cache
 }
 
 func (m *Manager) downloadFileWithProgress(ctx context.Context, url, filepath string, progressCallback func(downloaded, total int64)) error {

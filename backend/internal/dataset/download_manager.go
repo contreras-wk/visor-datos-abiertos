@@ -92,7 +92,7 @@ func (dm *DownloadManager) downloadInBackground(uuid string) {
 		})
 	}
 
-	// Descargar y convertir
+	// Descargar y convertir (ya crea en la ubicación correcta del cache)
 	dbPath, err := dm.manager.downloadAndConvertWithProgress(ctx, uuid, progressCallback)
 
 	if err != nil {
@@ -109,14 +109,13 @@ func (dm *DownloadManager) downloadInBackground(uuid string) {
 
 	dm.updateJob(uuid, func(job *DownloadJob) {
 		job.Status = StatusProcessing
-		job.Progress = 85
-		job.Message = "Guardando en cache..."
+		job.Progress = 95
+		job.Message = "Registrando en cache..."
 	})
 
-	// Guardar en cache
-	if err := dm.manager.cacheManager.SetToDisk(uuid, dbPath); err == nil {
-		dm.manager.cacheManager.SetToMemory(uuid, dbPath)
-	}
+	// ✅ El archivo YA está en la ubicación correcta
+	// Solo registrarlo en memoria LRU
+	dm.manager.cacheManager.SetToMemory(uuid, dbPath)
 
 	dm.updateJob(uuid, func(job *DownloadJob) {
 		job.Status = StatusReady
@@ -127,6 +126,7 @@ func (dm *DownloadManager) downloadInBackground(uuid string) {
 
 	duration := time.Since(dm.jobs[uuid].StartTime)
 	log.Printf("✅ Dataset %s listo en %.2f segundos", uuid, duration.Seconds())
+	log.Printf("📁 Ubicación: %s", dbPath)
 }
 
 func (dm *DownloadManager) updateJob(uuid string, updateFn func(*DownloadJob)) {

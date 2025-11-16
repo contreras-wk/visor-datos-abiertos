@@ -134,3 +134,7 @@ func (dc *DiskCache) Set(uuid, srcPath string) error {
 	//  Mover o copiar
 	return os.Rename(srcPath, dstPath)
 }
+
+func (m *Manager) GetCacheDir() string {
+	return m.diskCache.dir
+}
