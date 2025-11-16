@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -244,9 +245,106 @@ func (h *APIHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandler) GetStats(w http.ResponseWriter, r *http.Request) {
+	//  Extraer el UUID
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/stats/"), "/")
+	if len(parts) < 2 {
+		http.Error(w, "UUID y columna requeridos", http.StatusBadRequest)
+		return
+	}
 
+	uuid := parts[0]
+	column := parts[1]
+
+	// Parse filtros
+	var filters map[string]interface{}
+	if r.Method == http.MethodPost {
+		json.NewDecoder(r.Body).Decode(&filters)
+	}
+
+	// Cache Key
+	cacheKey := h.cacheManager.GenerateKey("stats", map[string]interface{}{
+		"uuid":    uuid,
+		"column":  column,
+		"filters": filters,
+	})
+
+	// Verificar cache
+	if cached, found := h.cacheManager.GetFromRedis(cacheKey); found {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(cached)
+		return
+	}
+
+	// Obtener stats
+	stats, err := h.datasetManager.GetStats(r.Context(), uuid, column, filters)
+	if err != nil {
+		log.Printf("erro obteniendo stats: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Serializar y cachear
+	jsonData, _ := json.Marshal(stats)
+	h.cacheManager.SetToRedis(cacheKey, jsonData, time.Hour)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.Write(jsonData)
 }
 
+// GetTopValues retorna los valores más frecuentes
 func (h *APIHandler) GetTopValues(w http.ResponseWriter, r *http.Request) {
+	// Extraer UUID
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/top/"), "/")
+	if len(parts) < 2 {
+		http.Error(w, "UUID y columna requeridos", http.StatusBadRequest)
+		return
+	}
 
+	uuid := parts[0]
+	column := parts[1]
+
+	// Limit desde query param
+	limit := 10
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		fmt.Sscanf(limitStr, "%d", &limit)
+	}
+
+	// Filtros
+	var filters map[string]interface{}
+	if r.Method == http.MethodPost {
+		json.NewDecoder(r.Body).Decode(&filters)
+	}
+
+	// CacheKey
+	cacheKey := h.cacheManager.GenerateKey("top", map[string]interface{}{
+		"uuid":    uuid,
+		"column":  column,
+		"limit":   limit,
+		"filters": filters,
+	})
+
+	// Verificar cache
+	if cached, found := h.cacheManager.GetFromRedis(cacheKey); found {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(cached)
+		return
+	}
+
+	// Obtener top values
+	data, err := h.datasetManager.GetTopValues(r.Context(), uuid, column, limit, filters)
+	if err != nil {
+		log.Printf("Error obteniendo top values: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Serializar y cachear
+	jsonData, _ := json.Marshal(data)
+	h.cacheManager.SetToRedis(cacheKey, jsonData, time.Hour)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.Write(jsonData)
 }
