@@ -15,17 +15,36 @@ import (
 )
 
 type Manager struct {
-	ckanClient   *ckan.Client
-	cacheManager *cache.Manager
-	connections  sync.Map // Pool de conexiones DuckDB
+	ckanClient      *ckan.Client
+	cacheManager    *cache.Manager
+	connections     sync.Map // Pool de conexiones DuckDB
+	downloadManager *DownloadManager
 	// mu           sync.RWMutex
 }
 
 func NewManager(ckanURL string, cacheManager *cache.Manager) *Manager {
-	return &Manager{
+	m := &Manager{
 		ckanClient:   ckan.NewClient(ckanURL),
 		cacheManager: cacheManager,
 	}
+
+	// Inicializar download manager
+	m.downloadManager = NewDownloadManager(m)
+
+	// Limpiar jobs antiguos cada hora
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			m.downloadManager.CleanupOldJobs()
+		}
+	}()
+
+	return m
+}
+
+func (m *Manager) GetDownloadManager() *DownloadManager {
+	return m.downloadManager
 }
 
 // GetConnection obtiene o crea una conexión DuckDB para un dataset

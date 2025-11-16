@@ -44,6 +44,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/metadata/", s.withMiddleware(apiHandler.GetMetadata))
 	s.mux.HandleFunc("/api/stats/", s.withMiddleware(apiHandler.GetStats))
 	s.mux.HandleFunc("/api/top/", s.withMiddleware(apiHandler.GetTopValues))
+	s.mux.HandleFunc("/api/status/", s.withMiddleware(apiHandler.GetDownloadStatus))
 }
 
 func (s *Server) MountFrontend(frontendFS fs.FS) {

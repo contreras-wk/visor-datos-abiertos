@@ -25,19 +25,14 @@ func NewAPIHandler(dm *dataset.Manager, cm *cache.Manager) *APIHandler {
 
 // GetFilters retorna los filtros disponibles para un dataset
 func (h *APIHandler) GetFilters(w http.ResponseWriter, r *http.Request) {
-	// Extraer el UUID de la URL (/api/filters/{uuid})
-
 	uuid := strings.TrimPrefix(r.URL.Path, "/api/filters/")
-
 	if uuid == "" {
 		http.Error(w, "UUID requerido", http.StatusBadRequest)
 		return
 	}
 
-	// Cache key
+	// Verificar cache Redis primero
 	cacheKey := "filters:" + uuid
-
-	// Verificar cache Redis (24 horas)
 	if cached, found := h.cacheManager.GetFromRedis(cacheKey); found {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
@@ -45,33 +40,111 @@ func (h *APIHandler) GetFilters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Obtener filtros
+	// Verificar si el dataset ya está en cache local
+	_, inMemory := h.cacheManager.GetFromMemory(uuid)
+	_, onDisk := h.cacheManager.GetFromDisk(uuid)
+
+	if !inMemory && !onDisk {
+		// Dataset NO está en cache, iniciar descarga asíncrona
+		dm := h.datasetManager.GetDownloadManager()
+		job := dm.StartDownload(uuid)
+
+		log.Printf("📤 Dataset %s no está en cache, iniciando descarga asíncrona", uuid)
+
+		// Retornar status inmediatamente
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted) // 202 Accepted
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":          job.Status,
+			"progress":        job.Progress,
+			"message":         job.Message,
+			"check_status_at": fmt.Sprintf("/api/status/%s", uuid),
+		})
+		return
+	}
+
+	// Dataset está en cache, obtener filtros
+	log.Printf("🔍 Obteniendo filtros para dataset: %s (desde cache)", uuid)
+
 	filters, err := h.datasetManager.GetAvailableFilters(r.Context(), uuid)
 	if err != nil {
-		log.Printf("Error obteniendo filtros: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ Error obteniendo filtros: %v", err)
+		http.Error(w, fmt.Sprintf("Error: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// serializar
-	data, err := json.Marshal(map[string]interface{}{
+	data, _ := json.Marshal(map[string]interface{}{
 		"filters": filters,
-		"cached":  false,
+		"cached":  true,
 	})
 
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// Cachear en Redis
+	h.cacheManager.SetToRedis(cacheKey, data, 24*time.Hour)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.Write(data)
+}
+
+// NUEVO: Endpoint de status
+func (h *APIHandler) GetDownloadStatus(w http.ResponseWriter, r *http.Request) {
+	uuid := strings.TrimPrefix(r.URL.Path, "/api/status/")
+	if uuid == "" {
+		http.Error(w, "UUID requerido", http.StatusBadRequest)
 		return
 	}
 
-	// cachear por 24 horas
-	h.cacheManager.SetToRedis(cacheKey, data, 24*time.Hour)
+	dm := h.datasetManager.GetDownloadManager()
+	job, exists := dm.GetJob(uuid)
 
-	// Retornar
+	if !exists {
+		// No hay job activo, verificar si está en cache
+		_, inMemory := h.cacheManager.GetFromMemory(uuid)
+		_, onDisk := h.cacheManager.GetFromDisk(uuid)
+
+		if inMemory || onDisk {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":   "ready",
+				"progress": 100.0,
+				"message":  "Dataset listo para consultar",
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "not_found",
+			"message": "Dataset no encontrado. Llama a /api/filters/:uuid primero.",
+		})
+		return
+	}
+
+	// Construir respuesta
+	response := map[string]interface{}{
+		"status":     job.Status,
+		"progress":   job.Progress,
+		"message":    job.Message,
+		"start_time": job.StartTime,
+	}
+
+	if job.FileSize > 0 {
+		response["file_size_mb"] = float64(job.FileSize) / (1024 * 1024)
+		response["downloaded_mb"] = float64(job.Downloaded) / (1024 * 1024)
+	}
+
+	if job.Status == dataset.StatusFailed {
+		response["error"] = job.ErrorMsg
+	}
+
+	if job.Status == dataset.StatusReady {
+		response["end_time"] = job.EndTime
+		response["duration_seconds"] = job.EndTime.Sub(job.StartTime).Seconds()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Cache", "MISS")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Write(data)
+	json.NewEncoder(w).Encode(response)
 }
 
 // GetFilteredData retorna datos filtrados
