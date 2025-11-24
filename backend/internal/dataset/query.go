@@ -137,13 +137,13 @@ func (m *Manager) GetAvailableFilters(ctx context.Context, uuid string) (map[str
 		// Contar valores distintos
 		var distinctCount int
 		query := fmt.Sprintf(`SELECT COUNT(DISTINCT "%s") FROM data`, col.Name)
-		if err := conn.QueryRowContext(ctx, query); err != nil {
+		if err := conn.QueryRowContext(ctx, query).Scan(&distinctCount); err != nil {
 			continue
 		}
 
 		// Si tiene menos de 100 valores únicos, es categórica
 		if distinctCount < 100 && distinctCount > 0 {
-			values, err := m.getDistincValues(ctx, conn, col.Name)
+			values, err := m.getDistinctValues(ctx, conn, col.Name)
 			if err != nil {
 				continue
 			}
@@ -196,8 +196,8 @@ func (m *Manager) getColumns(ctx context.Context, conn *sql.DB) ([]ColumnInfo, e
 	return columns, nil
 }
 
-func (m *Manager) getDistincValues(ctx context.Context, conn *sql.DB, column string) ([]string, error) {
-	query := fmt.Sprintf(`SELECT DISTINC "%s" FROM data WHERE "%s" IS NOT NULL ORDER BY  "%s" LIMIT 1000`, column, column, column)
+func (m *Manager) getDistinctValues(ctx context.Context, conn *sql.DB, column string) ([]string, error) {
+	query := fmt.Sprintf(`SELECT DISTINCT "%s" FROM data WHERE "%s" IS NOT NULL ORDER BY  "%s" LIMIT 1000`, column, column, column)
 
 	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
