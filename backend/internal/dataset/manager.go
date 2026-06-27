@@ -18,6 +18,7 @@ type Manager struct {
 	ckanClient      *ckan.Client
 	cacheManager    *cache.Manager
 	connections     sync.Map // Pool de conexiones DuckDB
+	connectionMu    sync.Mutex
 	downloadManager *DownloadManager
 	// mu           sync.RWMutex
 }
@@ -49,6 +50,10 @@ func (m *Manager) GetDownloadManager() *DownloadManager {
 
 // GetConnection obtiene o crea una conexión DuckDB para un dataset
 func (m *Manager) GetConnection(ctx context.Context, uuid string) (*sql.DB, error) {
+
+	m.connectionMu.Lock()
+	defer m.connectionMu.Unlock()
+
 	// 1. Verificar si ya tenemos la conexión en el pool
 	if conn, ok := m.connections.Load(uuid); ok {
 		return conn.(*sql.DB), nil
@@ -88,14 +93,14 @@ func (m *Manager) GetConnection(ctx context.Context, uuid string) (*sql.DB, erro
 
 func (m *Manager) openConnection(uuid, dbPath string) (*sql.DB, error) {
 	// Abrir conexión read-only
-	conn, err := sql.Open("duckdb", dbPath+"?access_mode=read_only")
+	conn, err := sql.Open("duckdb", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("error abriendo DuckDB: %w", err)
 	}
 
 	// Configurar pool
-	conn.SetMaxOpenConns(10)
-	conn.SetMaxIdleConns(5)
+	conn.SetMaxOpenConns(1)
+	conn.SetMaxIdleConns(1)
 	conn.SetConnMaxLifetime(time.Hour)
 
 	if err := conn.Ping(); err != nil {
